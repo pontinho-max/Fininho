@@ -87,10 +87,10 @@
   }
   .modal.open{ display:flex; }
   .modal-box{
-    width:94%; max-width:1000px; background:var(--panel); border-radius:12px; padding:12px;
+    width:94%; max-width:520px; background:var(--panel); border-radius:12px; padding:16px;
     box-shadow:0 20px 60px rgba(0,0,0,0.6);
   }
-  .modal iframe{ width:100%; height:60vh; border-radius:8px; border:0; background:#000; }
+  .modal img{ width:240px; height:240px; display:block; margin:10px auto; border-radius:8px; background:#000; }
   .admin-panel{
     position:fixed; right:18px; bottom:18px; z-index:60;
   }
@@ -109,10 +109,12 @@
   .auth h2{ text-align:center; margin:6px 0 12px; color:var(--text) }
   .muted{ color:var(--muted); font-size:13px; text-align:center; margin-top:8px }
   .user-badge{ background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:999px; display:flex; gap:10px; align-items:center; color:var(--muted) }
-  .pay-badge { background: linear-gradient(90deg,#ff66c4,#8e44ad); color:white; padding:8px 12px; border-radius:999px; font-weight:700; cursor:pointer; border:none }
+  .pay-badge { background: linear-gradient(90deg,#ff66c4,#8e44ad); color:white; padding:10px 14px; border-radius:8px; font-weight:700; cursor:pointer; border:none }
+  .tiny { font-size:13px; color:var(--muted) }
   @media (max-width:600px){
     .search input{ width:110px }
     .catalogo{ grid-template-columns: repeat(auto-fill,minmax(140px,1fr)) }
+    .modal img{ width:180px; height:180px }
   }
 </style>
 </head>
@@ -168,6 +170,38 @@
   </div>
 </main>
 
+<!-- PIX Modal -->
+<div class="modal" id="pixModal">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700">Pagar por PIX — R$5,00</div>
+      <button class="btn ghost" id="closePix">Fechar</button>
+    </div>
+    <div style="text-align:center;margin-top:8px">
+      <div class="tiny">Escaneie o QR com seu app bancário ou copie a chave e pague manualmente</div>
+      <img id="pixQr" src="" alt="QR PIX" />
+      <div style="margin-top:10px">
+        <div style="background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;word-break:break-all">
+          <div style="font-weight:700">Chave Pix:</div>
+          <div id="pixKey" style="margin-top:6px"></div>
+          <div class="tiny" style="margin-top:6px">Valor: R$ 5,00</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+        <button class="btn" id="copyPixBtn">Copiar chave</button>
+        <button class="btn ghost" id="manualPayBtn">Pague manualmente</button>
+      </div>
+
+      <div style="margin-top:12px">
+        <button class="pay-badge" id="confirmPaidBtn">✅ Já paguei (Marcar assinatura)</button>
+      </div>
+
+      <div class="tiny" style="margin-top:10px;color:#d0b8e6">Obs: confirmação automática não existe sem integração bancária. Você pode validar manualmente se preferir.</div>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="playerModal">
   <div class="modal-box">
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
@@ -201,16 +235,23 @@
 </div>
 
 <script>
-/* Storage keys */
+/* ===========================
+   Configurações PIX (sua chave)
+   =========================== */
+// chave Pix que você informou:
+const PIX_KEY = "389a7dd9-2519-4348-af1e-9e712766287a"; // <<-- já inserida
+const PIX_AMOUNT = "5.00"; // valor em reais (string com 2 casas)
+
+/* ===========================
+   Storage & inicialização
+   =========================== */
 const LS_USERS = 'cine_users_v1';
 const LS_FILMS = 'cine_films_v1';
 const LS_SESSION = 'cine_session_v1';
 
-/* helpers to load/save */
 function loadJSON(key, fallback){ try{ const v = localStorage.getItem(key); return v? JSON.parse(v): fallback; }catch(e){ return fallback; } }
 function saveJSON(key, obj){ localStorage.setItem(key, JSON.stringify(obj)); }
 
-/* initial admin user */
 let users = loadJSON(LS_USERS, null);
 if(!users){
   users = [
@@ -221,7 +262,9 @@ if(!users){
 let films = loadJSON(LS_FILMS, []);
 let session = loadJSON(LS_SESSION, null);
 
-/* elements */
+/* ===========================
+   Elementos
+   =========================== */
 const authBox = document.getElementById('authBox');
 const catalogSection = document.getElementById('catalogSection');
 const catalogEl = document.getElementById('catalogo');
@@ -250,15 +293,23 @@ const adminList = document.getElementById('adminList');
 const searchInput = document.getElementById('searchInput');
 const sortBtn = document.getElementById('sortBtn');
 
+const pixModal = document.getElementById('pixModal');
+const pixQr = document.getElementById('pixQr');
+const pixKeyEl = document.getElementById('pixKey');
+const closePix = document.getElementById('closePix');
+const copyPixBtn = document.getElementById('copyPixBtn');
+const confirmPaidBtn = document.getElementById('confirmPaidBtn');
+
 let ascending = true;
 
-/* utilities */
+/* ===========================
+   Utilitários
+   =========================== */
 function findUserByNameOrEmail(nameOrEmail){
   return users.find(u => u.username.toLowerCase() === nameOrEmail.toLowerCase() || (u.email && u.email.toLowerCase() === nameOrEmail.toLowerCase()));
 }
 function showToast(msg){ alert(msg); }
 
-/* extract drive ID from multiple patterns */
 function extractDriveId(input){
   if(!input) return null;
   if(/^[A-Za-z0-9_-]{10,}$/.test(input)) return input;
@@ -268,22 +319,22 @@ function extractDriveId(input){
   return maybe ? maybe[1] : null;
 }
 
-/* render catalog */
+/* ===========================
+   Render catalog & admin list
+   =========================== */
 function renderCatalog(filter=''){
-  // if user is not premium and not admin, show message instead of list
   const isPremium = !!localStorage.getItem('cine_premium');
   const isAdmin = session && session.role === 'admin';
 
   catalogEl.innerHTML = '';
 
   if(!isPremium && !isAdmin){
-    // show call-to-action to subscribe
     catalogEl.innerHTML = `<div style="grid-column:1/-1;color:var(--muted);text-align:center;padding:40px 0">
       <div style="font-size:18px;margin-bottom:8px">Acesso restrito</div>
       <div style="color:var(--muted);margin-bottom:12px">Assine Premium por R$5/mês para ver o catálogo</div>
       <button id="subscribeNow" class="pay-badge">💜 Assinar R$5</button>
     </div>`;
-    document.getElementById('subscribeNow').addEventListener('click', ()=> createPreferenceAndRedirect());
+    document.getElementById('subscribeNow').addEventListener('click', ()=> openPixModal());
     return;
   }
 
@@ -297,7 +348,6 @@ function renderCatalog(filter=''){
   list.forEach((f, idx) => {
     const card = document.createElement('div');
     card.className = 'card';
-    // clicking image opens player; do not expose raw links
     card.innerHTML = `
       <img class="thumb" src="${escapeHtml(f.cover||'')}" alt="${escapeHtml(f.title)}" onerror="this.src='https://via.placeholder.com/400x600/21102a/9b59b6?text=SEM+CAPA'" onclick="openPlayerByIndex(${idx})"/>
       <div class="title">${escapeHtml(f.title)}</div>
@@ -310,7 +360,6 @@ function renderCatalog(filter=''){
   window.openPlayerByIndex = idx => openPlayer(films[idx]);
 }
 
-/* render admin list (edit/remove) */
 function renderAdminList(){
   adminList.innerHTML = '';
   if(films.length===0){ adminList.innerHTML = '<div style="color:var(--muted)">Nenhum filme cadastrado</div>'; return; }
@@ -345,7 +394,9 @@ function renderAdminList(){
   }
 }
 
-/* player open/close (modal) */
+/* ===========================
+   Player
+   =========================== */
 function openPlayer(f){
   const id = f.driveId;
   if(!id){ showToast('Filme sem ID válido'); return; }
@@ -354,11 +405,18 @@ function openPlayer(f){
   playerTitle.textContent = f.title;
   playerModal.classList.add('open');
 }
-closePlayer.addEventListener('click', ()=> { playerFrame.src=''; playerModal.classList.remove('open'); });
+closePlayer.addEventListener('click', ()=> {
+  playerFrame.src=''; playerModal.classList.remove('open');
+});
 playerModal.addEventListener('click', (e)=>{ if(e.target === playerModal){ playerFrame.src=''; playerModal.classList.remove('open'); } });
 
-/* auth */
-function showAuth(show){ authBox.style.display = show ? 'block' : 'none'; catalogSection.style.display = show ? 'none' : 'block'; }
+/* ===========================
+   Auth (login / register / session)
+   =========================== */
+function showAuth(show){
+  authBox.style.display = show ? 'block' : 'none';
+  catalogSection.style.display = show ? 'none' : 'block';
+}
 function updateUserArea(){
   if(session){
     userArea.innerHTML = `<div class="user-badge"><div style="font-weight:700">${escapeHtml(session.username)}</div>
@@ -375,7 +433,6 @@ function updateUserArea(){
   }
 }
 
-/* login/register handlers */
 loginBtn.addEventListener('click', ()=>{
   const name = (usernameInput.value||'').trim();
   const pass = (passwordInput.value||'').trim();
@@ -399,7 +456,9 @@ registerBtn.addEventListener('click', ()=>{
   showToast('Conta criada. Agora faça o login.');
 });
 
-/* admin adding films */
+/* ===========================
+   Admin add film
+   =========================== */
 addFilmBtn.addEventListener('click', ()=>{
   const title = (filmTitle.value||'').trim();
   const driveRaw = (filmDrive.value||'').trim();
@@ -415,54 +474,58 @@ addFilmBtn.addEventListener('click', ()=>{
   showToast('Filme adicionado com sucesso');
 });
 
-/* search & sort */
+/* ===========================
+   Search & sort
+   =========================== */
 searchInput.addEventListener('input', ()=> renderCatalog(searchInput.value));
-sortBtn.addEventListener('click', ()=>{ ascending = !ascending; sortBtn.textContent = ascending ? 'Ordenar A-Z' : 'Ordenar Z-A'; renderCatalog(searchInput.value); });
+sortBtn.addEventListener('click', ()=>{
+  ascending = !ascending;
+  sortBtn.textContent = ascending ? 'Ordenar A-Z' : 'Ordenar Z-A';
+  renderCatalog(searchInput.value);
+});
 
-/* admin UI toggles */
-openAdmin.addEventListener('click', ()=> { admModal.classList.toggle('open'); renderAdminList(); });
+/* ===========================
+   Admin UI toggles
+   =========================== */
+openAdmin.addEventListener('click', ()=> {
+  admModal.classList.toggle('open');
+  renderAdminList();
+});
 closeAdmin.addEventListener('click', ()=> admModal.classList.remove('open'));
 
-/* escape */
-function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
-
 /* ===========================
-   Mercado Pago integration (frontend)
-   - This calls your backend endpoint which creates a MP preference
-   - Replace BACKEND_URL with your deployed backend (Render/Railway/Replit)
+   PIX modal logic
    =========================== */
-
-const BACKEND_URL = "https://REPLACE_WITH_YOUR_BACKEND/create_preference"; // <<-- coloque aqui a URL do seu backend
-
-async function createPreferenceAndRedirect(){
-  try {
-    if(!BACKEND_URL || BACKEND_URL.includes("REPLACE_WITH_YOUR_BACKEND")){
-      alert("Backend não configurado. Configure BACKEND_URL no código com a URL do seu servidor.");
-      return;
-    }
-    // optional: pass user info to backend (session)
-    const resp = await fetch(BACKEND_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: "Powercine - Assinatura R$5", amount: 5.00 })
-    });
-    const data = await resp.json();
-    if(resp.ok && data.init_point){
-      // abre o checkout do Mercado Pago
-      window.location.href = data.init_point;
-    } else {
-      console.error(data);
-      alert("Erro ao iniciar checkout. Veja console.");
-    }
-  } catch(err){
-    console.error(err);
-    alert("Erro de conexão com o backend.");
-  }
+function openPixModal(){
+  // build a simple payload string (informativa)
+  const payload = `Chave:${PIX_KEY};Valor:${PIX_AMOUNT};Descricao:Assinatura Powercine`;
+  // generate QR via api.qrserver.com with payload text
+  const qrText = encodeURIComponent(payload);
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${qrText}`;
+  pixQr.src = qrUrl;
+  pixKeyEl.textContent = PIX_KEY + "  (valor R$ " + PIX_AMOUNT + ")";
+  pixModal.classList.add('open');
 }
 
+closePix.addEventListener('click', ()=> { pixModal.classList.remove('open'); });
+
+copyPixBtn.addEventListener('click', ()=>{
+  navigator.clipboard?.writeText(PIX_KEY).then(()=> showToast('Chave PIX copiada')).catch(()=> showToast('Não foi possível copiar'));
+});
+
+confirmPaidBtn.addEventListener('click', ()=>{
+  // Marca premium local (ATENÇÃO: essa marcação é manual - sem verificação automática)
+  localStorage.setItem('cine_premium','1');
+  showToast('Assinatura marcada como ativa (local). Se for real, verifique a transação no seu banco/painel.');
+  pixModal.classList.remove('open');
+  renderCatalog('');
+});
+
 /* ===========================
-   Initial render & session handling
+   helpers & init
    =========================== */
+function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
 function refreshUI(){
   const sess = loadJSON(LS_SESSION, null);
   session = sess;
