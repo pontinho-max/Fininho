@@ -223,7 +223,7 @@
     subscribeBtn.disabled = true;
     subscribeBtn.textContent = "Gerando pagamento...";
     try {
-      const res = await fetch("/api/assinatura");
+      const res = await fetch("/api/assinatura.js");
       const data = await res.json();
       if (data.init_point) {
         window.location.href = data.init_point;
